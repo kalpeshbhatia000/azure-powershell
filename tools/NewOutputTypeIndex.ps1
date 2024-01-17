@@ -1,62 +1,50 @@
 param(
     [Parameter(Mandatory = $false)]
-    [string] $BuildConfig = "Debug",
+    [string] $BuildConfig = "Release",
     [Parameter(Mandatory = $false)]
-    [string] $OutputFile = "$PSScriptRoot/outputtypes.json"
+    [string] $OutputFile = "outputtypes.json"
 )
 
-# Get all psd1 files
-$psd1Files = Get-Item $PSScriptRoot\..\artifacts\$BuildConfig\Az.*\Az.*.psd1
+$AzPreviewPath = Get-Item "$PSScriptRoot\AzPreview\AzPreview.psd1"
+Import-LocalizedData -BindingVariable ModuleMetadata -BaseDirectory $AzPreviewPath.DirectoryName -FileName $AzPreviewPath.Name
+Get-ChildItem -Path "$PSScriptRoot\..\src" -Filter "*.psd1" -Recurse | Where-Object { $_.FullName -notlike "*autorest*" }
+$OutputTypes = New-Object System.Collections.Generic.HashSet[string]
 
-$profilePsd1 = $psd1Files | Where-Object {$_.Name -like "*Az.Accounts.psd1"}
-Import-LocalizedData -BindingVariable "psd1File" -BaseDirectory $profilePsd1.DirectoryName -FileName $profilePsd1.Name
-foreach ($nestedModule in $psd1File.RequiredAssemblies)
-{
-    $dllPath = Join-Path -Path $profilePsd1.DirectoryName -ChildPath $nestedModule
-    $Assembly = [Reflection.Assembly]::LoadFrom($dllPath)
-}
+$ModuleMetadata.RequiredModules | ForEach-Object {
+    $ModuleName = $_.ModuleName
+    $SrcFile = $ModuleManifestFile | Where-Object { $_.Name -eq "$ModuleName.psd1" }
+    Import-LocalizedData -BindingVariable SrcMetadata -BaseDirectory $SrcFile.DirectoryName -FileName $SrcFile.Name
+    $NestedModules = $SrcMetadata.NestedModules | Where-Object { $_ -like "*.dll" }
 
-$outputTypes = New-Object System.Collections.Generic.HashSet[string]
-
-$psd1Files | ForEach {
-    Import-LocalizedData -BindingVariable "psd1File" -BaseDirectory $_.DirectoryName -FileName $_.Name
-    foreach ($nestedModule in $psd1File.NestedModules)
-    {
-        if('.dll' -ne [System.IO.Path]::GetExtension($nestedModule)) 
-        {
-            continue;
+    if ($NestedModules.Count -gt 0) {
+        if (Test-Path "$PSScriptRoot\..\artifacts\$BuildConfig\$ModuleName\$ModuleName.psd1") {
+            Import-Module "$PSScriptRoot\..\artifacts\$BuildConfig\$ModuleName\$ModuleName.psd1" 
+        } else {
+            Import-Module $ModuleName
         }
-        $dllPath = Join-Path -Path $_.DirectoryName -ChildPath $nestedModule
-        $Assembly = [Reflection.Assembly]::LoadFrom($dllPath)
-        $exportedTypes = $Assembly.GetTypes()
-        foreach ($exportedType in $exportedTypes)
-        {
-            foreach ($attribute in $exportedType.CustomAttributes)
-            {
-                if ($attribute.AttributeType.Name -eq "OutputTypeAttribute")
-                {
-                    $cmdletOutputTypes = $attribute.ConstructorArguments.Value.Value
-                    foreach ($cmdletOutputType in $cmdletOutputTypes)
-                    {
-                        $outputTypes.Add($cmdletOutputType.FullName) | Out-Null
-                    }
-                }
-            }
 
-            foreach ($property in $exportedType.GetProperties() | Where-Object {$_.CustomAttributes.AttributeType.Name -contains "ParameterAttribute"})
-            {
-                if ($property.PropertyType.FullName -like "*System.Nullable*``[``[*")
-                {
-                    $outputTypes.Add(($property.PropertyType.BaseType.FullName -replace "[][]", "")) | Out-Null
-                }
-                elseif ($property.PropertyType.FullName -notlike "*``[``[*")
-                {
-                    $outputTypes.Add(($property.PropertyType.FullName -replace "[][]", "")) | Out-Null
+        $Module = Get-Module $ModuleName
+        foreach ($ModuleInfo in $Module.NestedModules) {
+            if ($SrcMetadata.NestedModules -contains "$($ModuleInfo.Name).dll") {
+                foreach ($Cmdlet in $ModuleInfo.ExportedCmdlets.Values) {
+                    $Cmdlet.ImplementingType.GetTypeInfo().GetCustomAttributes([System.Management.Automation.OutputTypeAttribute], $true) | ForEach-Object {
+                        $_.Type.Name | ForEach-Object { $OutputTypes.Add($_) | Out-Null }
+                    }
+
+                    $Cmdlet.Parameters.Values | Where-Object { $_.Attributes.TypeId.FullName -contains "System.Management.Automation.ParameterAttribute" } | ForEach-Object {
+                        $ParameterTypeFullName = $_.ParameterType.FullName
+                        if ($ParameterTypeFullName -like "*System.Nullable*``[``[*") {
+                            $OutputTypes.Add(($_.ParameterType.BaseType.FullName -replace "[][]", "")) | Out-Null
+                        } elseif ($ParameterTypeFullName -notlike "*``[``[*") {
+                            $OutputTypes.Add(($ParameterTypeFullName -replace "[][]", "")) | Out-Null
+                        }
+                    }
                 }
             }
         }
     }
 }
 
-$json = ConvertTo-Json $outputTypes
-$json | Out-File "$OutputFile"
+Write-Host "OutputTypes successfully created: $OutputFile." -ForegroundColor Green;
+
+$OutputTypes | ConvertTo-Json | Out-File $OutputFile
