@@ -19,8 +19,10 @@ $ModuleMetadata.RequiredModules | ForEach-Object {
     if ($NestedModules.Count -gt 0) {
         if (Test-Path "$PSScriptRoot\..\artifacts\$BuildConfig\$ModuleName\$ModuleName.psd1") {
             Import-Module "$PSScriptRoot\..\artifacts\$BuildConfig\$ModuleName\$ModuleName.psd1" 
+            "$PSScriptRoot\..\artifacts\$BuildConfig\$ModuleName\$ModuleName.psd1" 
         } else {
             Import-Module $ModuleName
+            $ModuleName
         }
 
         $Module = Get-Module $ModuleName
