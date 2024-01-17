@@ -7,7 +7,7 @@ param(
 
 $AzPreviewPath = Get-Item "$PSScriptRoot\AzPreview\AzPreview.psd1"
 Import-LocalizedData -BindingVariable ModuleMetadata -BaseDirectory $AzPreviewPath.DirectoryName -FileName $AzPreviewPath.Name
-Get-ChildItem -Path "$PSScriptRoot\..\src" -Filter "*.psd1" -Recurse | Where-Object { $_.FullName -notlike "*autorest*" }
+$ModuleManifestFile = Get-ChildItem -Path "$PSScriptRoot\..\src" -Filter "*.psd1" -Recurse | Where-Object { $_.FullName -notlike "*autorest*" }
 $OutputTypes = New-Object System.Collections.Generic.HashSet[string]
 
 $ModuleMetadata.RequiredModules | ForEach-Object {
