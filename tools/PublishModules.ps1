@@ -56,7 +56,10 @@ param(
     [string]$RepositoryLocation,
 
     [Parameter(Mandatory = $false, Position = 5)]
-    [string]$NugetExe
+    [string]$NugetExe,
+
+    [Parameter(Mandatory = $false, Position = 5)]
+    [boolean]$GenerateDocumentationFile = $false
 )
 
 Import-Module "$PSScriptRoot\PublishModules.psm1"
@@ -119,6 +122,8 @@ $Errors = $null
 try {
     $modules = Get-AllModules -BuildConfig $BuildConfig -Scope $Scope -PublishLocal:$PublishLocal -IsNetCore:$IsNetCore
     Add-AllModules -ModulePaths $modules -TempRepo $tempRepoName -TempRepoPath $tempRepoPath -NugetExe $NugetExe
+    .("$PSScriptRoot/CleanupBuild.ps1 -BuildConfig $BuildConfig -GenerateDocumentationFile $GenerateDocumentationFile")
+    .("$PSScriptRoot/NewOutputTypeIndex.ps1 -OutputFile $packageFolder/outputtypes.json -BuildConfig $BuildConfig")
     Publish-AllModules -ModulePaths $modules -ApiKey $apiKey -TempRepoPath $tempRepoPath -RepoLocation $repositoryLocation -NugetExe $NugetExe -PublishLocal:$PublishLocal
 } catch {
     $Errors = $_
